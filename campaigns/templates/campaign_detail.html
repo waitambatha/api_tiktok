@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Campaign Details{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h2>Campaign Details</h2>
+  {% if campaign %}
+    <p><strong>ID:</strong> {{ campaign.campaign_id|default:'N/A' }}</p>
+    <p><strong>Name:</strong> {{ campaign.campaign_name|default:'Unnamed Campaign' }}</p>
+    <p><strong>Budget:</strong> ${{ campaign.budget|default:'0' }}</p>
+    <p><strong>Last Updated:</strong> {{ campaign.last_updated|default:'Unknown' }}</p>
+    <a href="{% url 'dashboard' %}" class="btn btn-secondary">Back to Dashboard</a>
+  {% else %}
+    <div class="alert alert-warning">Campaign not found.</div>
+  {% endif %}
+</div>
+{% endblock %}

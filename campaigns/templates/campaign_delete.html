@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Delete Campaign{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h2 class="mb-4">Delete Campaign</h2>
+  {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+  {% endif %}
+  <p>Are you sure you want to delete campaign ID <strong>{{ campaign_id }}</strong>?</p>
+  <form method="post">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-danger">Delete</button>
+    <a href="{% url 'dashboard' %}" class="btn btn-secondary">Cancel</a>
+  </form>
+</div>
+{% endblock %}
+

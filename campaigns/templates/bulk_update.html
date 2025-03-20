@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Bulk Update Campaigns{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h2 class="mb-4">Bulk Update Campaigns</h2>
+
+  {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+  {% endif %}
+  {% if message %}
+    <div class="alert alert-success">{{ message }}</div>
+  {% endif %}
+
+  {% if page_obj.object_list %}
+    <form method="post" action="{% url 'campaign_bulk_update' %}">
+      {% csrf_token %}
+      <table class="table table-bordered">
+        <thead class="table-dark">
+          <tr>
+            <th><input type="checkbox" id="select_all"></th>
+            <th>Campaign ID</th>
+            <th>Campaign Name</th>
+            <th>Budget ($)</th>
+            <th>Last Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for campaign in page_obj %}
+          <tr>
+            <td><input type="checkbox" name="campaign_ids" value="{{ campaign.campaign_id }}"></td>
+            <td>{{ campaign.campaign_id|default:'N/A' }}</td>
+            <td>{{ campaign.campaign_name|default:'Unnamed Campaign' }}</td>
+            <td>{{ campaign.budget|default:'0' }}</td>
+            <td>{{ campaign.last_updated|default:'Unknown' }}</td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="5" class="text-center">No campaigns found on this page.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div class="form-group mt-3">
+        <label for="new_budget">New Budget ($):</label>
+        <input type="number" step="0.01" class="form-control" id="new_budget" name="new_budget" placeholder="Enter new budget for selected campaigns" required>
+      </div>
+      <button type="submit" class="btn btn-primary mt-2">Update Selected Campaigns</button>
+      <a href="{% url 'dashboard' %}" class="btn btn-secondary mt-2">Back to Dashboard</a>
+
+      <nav class="mt-3" aria-label="Page navigation">
+        <ul class="pagination justify-content-center">
+          {% if page_obj.has_previous %}
+            <li class="page-item"><a class="page-link" href="?page=1">First</a></li>
+            <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}">Previous</a></li>
+          {% endif %}
+          <li class="page-item active"><a class="page-link">{{ page_obj.number }}</a></li>
+          {% if page_obj.has_next %}
+            <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}">Next</a></li>
+            <li class="page-item"><a class="page-link" href="?page={{ page_obj.paginator.num_pages }}">Last</a></li>
+          {% endif %}
+        </ul>
+      </nav>
+    </form>
+  {% else %}
+    <div class="alert alert-warning">No campaigns available.</div>
+    <a href="{% url 'dashboard' %}" class="btn btn-secondary mt-3">Back to Dashboard</a>
+  {% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const selectAllCheckbox = document.getElementById('select_all');
+  const campaignCheckboxes = document.querySelectorAll('input[name="campaign_ids"]');
+
+  selectAllCheckbox.addEventListener('change', function() {
+    campaignCheckboxes.forEach(function(checkbox) {
+      checkbox.checked = selectAllCheckbox.checked;
+    });
+  });
+
+  campaignCheckboxes.forEach(function(checkbox) {
+    checkbox.addEventListener('change', function() {
+      if (!this.checked) {
+        selectAllCheckbox.checked = false;
+      }
+    });
+  });
+});
+</script>
+<<<<<<< HEAD
+{% endblock %}
+=======
+{% endblock %}
+>>>>>>> 8be5587598f4fd6833c5c9f008ee94eaf02657e9

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Delete Ad Group{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h2>Delete Ad Group</h2>
+  {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+  {% endif %}
+  <p>Are you sure you want to delete ad group ID: {{ adgroup_id }}?</p>
+  <form method="post">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-danger">Confirm Delete</button>
+    <a href="{% url 'adgroup_listing' %}" class="btn btn-secondary">Cancel</a>
+  </form>
+</div>
+{% endblock %}

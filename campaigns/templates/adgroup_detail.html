@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Ad Group Details{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h2>Ad Group Details</h2>
+  {% if adgroup %}
+    <p><strong>ID:</strong> {{ adgroup.adgroup_id|default:'N/A' }}</p>
+    <p><strong>Name:</strong> {{ adgroup.adgroup_name|default:'Unnamed Ad Group' }}</p>
+    <p><strong>Budget:</strong> ${{ adgroup.budget|default:'0' }}</p>
+    <p><strong>Schedule Start:</strong> {{ adgroup.schedule_start_time|default:'N/A' }}</p>
+    <p><strong>Schedule End:</strong> {{ adgroup.schedule_end_time|default:'N/A' }}</p>
+    <a href="{% url 'adgroup_listing' %}" class="btn btn-secondary">Back to Listing</a>
+  {% else %}
+    <div class="alert alert-warning">Ad group not found.</div>
+  {% endif %}
+</div>
+{% endblock %}
