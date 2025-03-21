@@ -158,21 +158,21 @@ def ui_logout(request):
 
 def dashboard(request):
     """
-    Displays the user dashboard with a paginated table of campaigns (100 per page).
+    Displays the user dashboard with a paginated table of ad groups (100 per page).
     """
     if not request.user.is_authenticated:
         return redirect('ui_login')
 
     page_number = request.GET.get('page', 1)
-    campaigns = fetch_campaigns(page=page_number, page_size=100)
-    paginator = Paginator(campaigns, 100)
+    adgroups = fetch_adgroups(page=page_number, page_size=100)
+    paginator = Paginator(adgroups, 100)
     page_obj = paginator.get_page(page_number)
 
-    no_campaigns = (len(campaigns) == 0)
+    no_adgroups = (len(adgroups) == 0)
     return render(request, 'dashboard.html', {
         'user': request.user,
         'page_obj': page_obj,
-        'no_campaigns': no_campaigns
+        'no_adgroups': no_adgroups
     })
 
 def listing(request):
@@ -353,24 +353,45 @@ def adgroup_update(request, adgroup_id):
                 'error': "Please provide all fields."
             })
 
-        url = f"{BASE_URL}/v1.3/adgroup/update/"
+        try:
+            budget = float(budget)
+            if budget < 0:
+                raise ValueError("Budget cannot be negative.")
+        except ValueError as e:
+            return render(request, 'adgroup_update.html', {
+                'adgroup': adgroup,
+                'error': f"Invalid budget value: {str(e)}"
+            })
+
+        url = f"{BASE_URL}/adgroup/update/"  # Changed from /v1.3/adgroup/update/
         payload = {
             "advertiser_id": TIKTOK_ADVERTISER_ID,
             "adgroup_id": adgroup_id,
-            "budget": float(budget),
+            "budget": budget,
             "schedule_start_time": schedule_start,
             "schedule_end_time": schedule_end,
         }
-        response = requests.post(url, json=payload, headers=HEADERS)
-
-        if response.status_code == 200:
-            return redirect('adgroup_listing')
-        return render(request, 'adgroup_update.html', {
-            'adgroup': adgroup,
-            'error': "Failed to update ad group."
-        })
+        try:
+            response = requests.post(url, json=payload, headers=HEADERS)
+            print(f"DEBUG: Ad Group {adgroup_id} - Status: {response.status_code}, Response: {response.text}")
+            if response.status_code in [200, 204]:
+                return redirect('adgroup_listing')
+            try:
+                error_detail = response.json().get('message', 'Unknown error')
+            except ValueError:
+                error_detail = f"Invalid response: {response.text or 'Empty'}"
+            return render(request, 'adgroup_update.html', {
+                'adgroup': adgroup,
+                'error': f"Failed to update ad group (Status {response.status_code}: {error_detail})"
+            })
+        except requests.exceptions.RequestException as e:
+            return render(request, 'adgroup_update.html', {
+                'adgroup': adgroup,
+                'error': f"Request failed: {str(e)}"
+            })
 
     return render(request, 'adgroup_update.html', {'adgroup': adgroup})
+
 
 def adgroup_bulk_update(request):
     """
@@ -384,17 +405,69 @@ def adgroup_bulk_update(request):
         new_budget = request.POST.get('new_budget')
 
         if not new_budget:
-            return redirect('adgroup_listing')
+            page_number = request.GET.get('page', 1)
+            adgroups = fetch_adgroups(page=page_number, page_size=100)
+            paginator = Paginator(adgroups, 100)
+            page_obj = paginator.get_page(page_number)
+            return render(request, 'adgroup_bulk_update.html', {
+                'page_obj': page_obj,
+                'no_adgroups': len(adgroups) == 0,
+                'error': "Please provide a new budget."
+            })
 
+        try:
+            new_budget = float(new_budget)
+            if new_budget < 0:
+                raise ValueError("Budget cannot be negative.")
+        except ValueError as e:
+            page_number = request.GET.get('page', 1)
+            adgroups = fetch_adgroups(page=page_number, page_size=100)
+            paginator = Paginator(adgroups, 100)
+            page_obj = paginator.get_page(page_number)
+            return render(request, 'adgroup_bulk_update.html', {
+                'page_obj': page_obj,
+                'no_adgroups': len(adgroups) == 0,
+                'error': f"Invalid budget value: {str(e)}"
+            })
+
+        update_errors = []
         for adgroup_id in selected_adgroups:
-            url = f"{BASE_URL}/v1.3/adgroup/update/"
+            url = f"{BASE_URL}/adgroup/update/"  # Changed from /v1.3/adgroup/update/
             payload = {
                 "advertiser_id": TIKTOK_ADVERTISER_ID,
                 "adgroup_id": adgroup_id,
-                "budget": float(new_budget),
+                "budget": new_budget,
             }
-            requests.post(url, json=payload, headers=HEADERS)
+            try:
+                response = requests.post(url, json=payload, headers=HEADERS)
+                print(f"DEBUG: Ad Group {adgroup_id} - Status: {response.status_code}, Response: {response.text}")
+                if response.status_code not in [200, 204]:
+                    try:
+                        error_detail = response.json().get('message', 'Unknown error')
+                    except ValueError:
+                        error_detail = f"Invalid response: {response.text or 'Empty'}"
+                    update_errors.append(f"{adgroup_id} (Status {response.status_code}: {error_detail})")
+            except requests.exceptions.RequestException as e:
+                update_errors.append(f"{adgroup_id} (Request failed: {str(e)})")
 
-        return redirect('adgroup_listing')
+        if not update_errors:
+            return redirect('dashboard')
+        page_number = request.GET.get('page', 1)
+        adgroups = fetch_adgroups(page=page_number, page_size=100)
+        paginator = Paginator(adgroups, 100)
+        page_obj = paginator.get_page(page_number)
+        return render(request, 'adgroup_bulk_update.html', {
+            'page_obj': page_obj,
+            'no_adgroups': len(adgroups) == 0,
+            'error': f"Failed to update ad groups: {', '.join(update_errors)}"
+        })
 
-    return redirect('adgroup_listing')
+    # On GET, render the bulk update page with the ad group list
+    page_number = request.GET.get('page', 1)
+    adgroups = fetch_adgroups(page=page_number, page_size=100)
+    paginator = Paginator(adgroups, 100)
+    page_obj = paginator.get_page(page_number)
+    return render(request, 'adgroup_bulk_update.html', {
+        'page_obj': page_obj,
+        'no_adgroups': len(adgroups) == 0
+    })
