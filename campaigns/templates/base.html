@@ -13,8 +13,7 @@
             <div class="collapse navbar-collapse">
                 <ul class="navbar-nav me-auto">
                     {% if user.is_authenticated %}
-                        <li class="nav-item"><a class="nav-link" href="{% url 'campaign_listing' %}">Campaigns</a></li>
-                        <li class="nav-item"><a class="nav-link" href="{% url 'adgroup_listing' %}">Ad Groups</a></li>
+
                     {% endif %}
                 </ul>
                 <ul class="navbar-nav ms-auto">
@@ -22,8 +21,6 @@
                         <li class="nav-item"><a class="nav-link" href="{% url 'ui_logout' %}">Logout</a></li>
                     {% else %}
                         <li class="nav-item"><a class="nav-link" href="{% url 'ui_login' %}">Login</a></li>
-
-                        
 
                     {% endif %}
                 </ul>
