@@ -1,5 +1,6 @@
 import os
 import requests
+from datetime import datetime
 from django.shortcuts import render, redirect
 from django.contrib.auth import authenticate, login, logout as django_logout
 from django.contrib.auth.models import User
@@ -333,14 +334,14 @@ def adgroup_listing(request):
 
 def adgroup_update(request, adgroup_id):
     """
-    Updates budget and schedule of a selected ad group.
+    Updates budget and schedule of a selected ad group with validation.
     """
     if not request.user.is_authenticated:
         return redirect('ui_login')
 
     adgroup = fetch_adgroup_details(adgroup_id)
     if not adgroup:
-        return redirect('adgroup_listing')
+        return redirect('dashboard')  # Changed to dashboard
 
     if request.method == 'POST':
         budget = request.POST.get('budget')
@@ -353,6 +354,7 @@ def adgroup_update(request, adgroup_id):
                 'error': "Please provide all fields."
             })
 
+        # Validate budget
         try:
             budget = float(budget)
             if budget < 0:
@@ -363,7 +365,29 @@ def adgroup_update(request, adgroup_id):
                 'error': f"Invalid budget value: {str(e)}"
             })
 
-        url = f"{BASE_URL}/adgroup/update/"  # Changed from /v1.3/adgroup/update/
+        # Validate schedule times
+        try:
+            start_dt = datetime.strptime(schedule_start, '%Y-%m-%dT%H:%M')
+            end_dt = datetime.strptime(schedule_end, '%Y-%m-%dT%H:%M')
+            current_dt = datetime.now()  # Current date: March 24, 2025, per system context
+
+            if start_dt < current_dt:
+                return render(request, 'adgroup_update.html', {
+                    'adgroup': adgroup,
+                    'error': "Schedule Start Time cannot be in the past."
+                })
+            if end_dt <= start_dt:
+                return render(request, 'adgroup_update.html', {
+                    'adgroup': adgroup,
+                    'error': "Schedule End Time must be after Schedule Start Time."
+                })
+        except ValueError as e:
+            return render(request, 'adgroup_update.html', {
+                'adgroup': adgroup,
+                'error': f"Invalid date format: {str(e)}"
+            })
+
+        url = f"{BASE_URL}/adgroup/update/"
         payload = {
             "advertiser_id": TIKTOK_ADVERTISER_ID,
             "adgroup_id": adgroup_id,
@@ -375,7 +399,7 @@ def adgroup_update(request, adgroup_id):
             response = requests.post(url, json=payload, headers=HEADERS)
             print(f"DEBUG: Ad Group {adgroup_id} - Status: {response.status_code}, Response: {response.text}")
             if response.status_code in [200, 204]:
-                return redirect('adgroup_listing')
+                return redirect('dashboard')  # Changed to dashboard
             try:
                 error_detail = response.json().get('message', 'Unknown error')
             except ValueError:
@@ -432,7 +456,7 @@ def adgroup_bulk_update(request):
 
         update_errors = []
         for adgroup_id in selected_adgroups:
-            url = f"{BASE_URL}/adgroup/update/"  # Changed from /v1.3/adgroup/update/
+            url = f"{BASE_URL}/adgroup/update/"
             payload = {
                 "advertiser_id": TIKTOK_ADVERTISER_ID,
                 "adgroup_id": adgroup_id,
@@ -451,7 +475,7 @@ def adgroup_bulk_update(request):
                 update_errors.append(f"{adgroup_id} (Request failed: {str(e)})")
 
         if not update_errors:
-            return redirect('dashboard')
+            return redirect('dashboard')  # Changed to dashboard
         page_number = request.GET.get('page', 1)
         adgroups = fetch_adgroups(page=page_number, page_size=100)
         paginator = Paginator(adgroups, 100)
