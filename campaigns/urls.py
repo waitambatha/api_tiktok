@@ -21,4 +21,5 @@ path('adgroups/detail/<str:adgroup_id>/', ui_views.adgroup_detail, name='adgroup
     # API endpoints
     path('api/login/', views.login_user, name='login_user_api'),
     path('api/campaigns/', views.fetch_campaigns, name='fetch_campaigns'),
+path('adgroup/bulk-update-schedule/', ui_views.adgroup_bulk_update_schedule, name='adgroup_bulk_update_schedule'),
 ]
