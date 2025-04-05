@@ -7,6 +7,7 @@ from django.contrib.auth.models import User
 from django.core.paginator import Paginator
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
+from urllib.parse import quote  # For URL encoding
 
 # Import TikTok API variables and functions
 from .views import BASE_URL, TIKTOK_ADVERTISER_ID, HEADERS
@@ -170,10 +171,15 @@ def dashboard(request):
     page_obj = paginator.get_page(page_number)
 
     no_adgroups = (len(adgroups) == 0)
+    message = request.GET.get('message', None)
+    error = request.GET.get('error', None)
+
     return render(request, 'dashboard.html', {
         'user': request.user,
         'page_obj': page_obj,
-        'no_adgroups': no_adgroups
+        'no_adgroups': no_adgroups,
+        'message': message,
+        'error': error
     })
 
 def listing(request):
@@ -332,91 +338,6 @@ def adgroup_listing(request):
         'no_adgroups': len(adgroups) == 0
     })
 
-def adgroup_update(request, adgroup_id):
-    """
-    Updates budget and schedule of a selected ad group with validation.
-    """
-    if not request.user.is_authenticated:
-        return redirect('ui_login')
-
-    adgroup = fetch_adgroup_details(adgroup_id)
-    if not adgroup:
-        return redirect('dashboard')  # Changed to dashboard
-
-    if request.method == 'POST':
-        budget = request.POST.get('budget')
-        schedule_start = request.POST.get('schedule_start')
-        schedule_end = request.POST.get('schedule_end')
-
-        if not all([budget, schedule_start, schedule_end]):
-            return render(request, 'adgroup_update.html', {
-                'adgroup': adgroup,
-                'error': "Please provide all fields."
-            })
-
-        # Validate budget
-        try:
-            budget = float(budget)
-            if budget < 0:
-                raise ValueError("Budget cannot be negative.")
-        except ValueError as e:
-            return render(request, 'adgroup_update.html', {
-                'adgroup': adgroup,
-                'error': f"Invalid budget value: {str(e)}"
-            })
-
-        # Validate schedule times
-        try:
-            start_dt = datetime.strptime(schedule_start, '%Y-%m-%dT%H:%M')
-            end_dt = datetime.strptime(schedule_end, '%Y-%m-%dT%H:%M')
-            current_dt = datetime.now()  # Current date: March 24, 2025, per system context
-
-            if start_dt < current_dt:
-                return render(request, 'adgroup_update.html', {
-                    'adgroup': adgroup,
-                    'error': "Schedule Start Time cannot be in the past."
-                })
-            if end_dt <= start_dt:
-                return render(request, 'adgroup_update.html', {
-                    'adgroup': adgroup,
-                    'error': "Schedule End Time must be after Schedule Start Time."
-                })
-        except ValueError as e:
-            return render(request, 'adgroup_update.html', {
-                'adgroup': adgroup,
-                'error': f"Invalid date format: {str(e)}"
-            })
-
-        url = f"{BASE_URL}/adgroup/update/"
-        payload = {
-            "advertiser_id": TIKTOK_ADVERTISER_ID,
-            "adgroup_id": adgroup_id,
-            "budget": budget,
-            "schedule_start_time": schedule_start,
-            "schedule_end_time": schedule_end,
-        }
-        try:
-            response = requests.post(url, json=payload, headers=HEADERS)
-            print(f"DEBUG: Ad Group {adgroup_id} - Status: {response.status_code}, Response: {response.text}")
-            if response.status_code in [200, 204]:
-                return redirect('dashboard')  # Changed to dashboard
-            try:
-                error_detail = response.json().get('message', 'Unknown error')
-            except ValueError:
-                error_detail = f"Invalid response: {response.text or 'Empty'}"
-            return render(request, 'adgroup_update.html', {
-                'adgroup': adgroup,
-                'error': f"Failed to update ad group (Status {response.status_code}: {error_detail})"
-            })
-        except requests.exceptions.RequestException as e:
-            return render(request, 'adgroup_update.html', {
-                'adgroup': adgroup,
-                'error': f"Request failed: {str(e)}"
-            })
-
-    return render(request, 'adgroup_update.html', {'adgroup': adgroup})
-
-
 def adgroup_bulk_update(request):
     """
     Handles bulk updates of ad group budgets.
@@ -464,18 +385,13 @@ def adgroup_bulk_update(request):
             }
             try:
                 response = requests.post(url, json=payload, headers=HEADERS)
-                print(f"DEBUG: Ad Group {adgroup_id} - Status: {response.status_code}, Response: {response.text}")
                 if response.status_code not in [200, 204]:
-                    try:
-                        error_detail = response.json().get('message', 'Unknown error')
-                    except ValueError:
-                        error_detail = f"Invalid response: {response.text or 'Empty'}"
-                    update_errors.append(f"{adgroup_id} (Status {response.status_code}: {error_detail})")
+                    update_errors.append(adgroup_id)
             except requests.exceptions.RequestException as e:
                 update_errors.append(f"{adgroup_id} (Request failed: {str(e)})")
 
         if not update_errors:
-            return redirect('dashboard')  # Changed to dashboard
+            return redirect('dashboard')
         page_number = request.GET.get('page', 1)
         adgroups = fetch_adgroups(page=page_number, page_size=100)
         paginator = Paginator(adgroups, 100)
@@ -492,6 +408,178 @@ def adgroup_bulk_update(request):
     paginator = Paginator(adgroups, 100)
     page_obj = paginator.get_page(page_number)
     return render(request, 'adgroup_bulk_update.html', {
+        'page_obj': page_obj,
+        'no_adgroups': len(adgroups) == 0
+    })
+
+def adgroup_update(request, adgroup_id):
+    if not request.user.is_authenticated:
+        return redirect('ui_login')
+
+    adgroup = fetch_adgroup_details(adgroup_id)
+    if not adgroup:
+        return redirect('dashboard')
+
+    now = datetime.now()
+
+    if request.method == 'POST':
+        # Collect and validate form inputs
+        budget = request.POST.get('budget')
+        end_str = request.POST.get('schedule_end')
+
+        # Validate required fields
+        if not all([budget, end_str]):
+            return render(request, 'adgroup_update.html', {
+                'adgroup': adgroup, 'current_datetime': now,
+                'error': "Please provide budget and end time."
+            })
+
+        # Validate budget
+        try:
+            budget = float(budget)
+            if budget < 0:
+                raise ValueError("Budget cannot be negative.")
+        except ValueError as e:
+            return render(request, 'adgroup_update.html', {
+                'adgroup': adgroup, 'current_datetime': now,
+                'error': f"Invalid budget: {e}"
+            })
+
+        # Validate and parse end date (must be in the future)
+        try:
+            end_dt = datetime.strptime(end_str, '%Y-%m-%dT%H:%M')
+            if end_dt <= now:
+                raise ValueError("End time must be in the future.")
+            # Ensure end time is after start time if start exists
+            existing_start = adgroup.get('schedule_start_time', 'N/A')
+            if existing_start != 'N/A':
+                start_dt = datetime.strptime(existing_start, '%Y-%m-%d %H:%M:%S')
+                if end_dt <= start_dt:
+                    raise ValueError("End time must be after the existing start time.")
+        except ValueError as e:
+            return render(request, 'adgroup_update.html', {
+                'adgroup': adgroup, 'current_datetime': now,
+                'error': f"Invalid end date: {e}"
+            })
+
+        api_end = end_dt.strftime('%Y-%m-%d %H:%M:00')
+
+        # Prepare payload for API (only update budget and end time)
+        payload = {
+            "advertiser_id": TIKTOK_ADVERTISER_ID,
+            "adgroup_id": adgroup_id,
+            "schedule_type": "SCHEDULE_START_END",
+            "schedule_end_time": api_end,
+            "budget": budget,
+        }
+
+        # Normal update
+        response = requests.post(f"{BASE_URL}/adgroup/update/", json=payload, headers=HEADERS)
+        if response.status_code in [200, 204] or (response.status_code == 200 and response.json().get("code") == 0):
+            return redirect('dashboard')
+        error_msg = response.json().get('message', response.text)
+        return render(request, 'adgroup_update.html', {
+            'adgroup': adgroup, 'current_datetime': now,
+            'error': f"Update failed: {error_msg}"
+        })
+
+    # GET request: Render the form
+    return render(request, 'adgroup_update.html', {
+        'adgroup': adgroup,
+        'current_datetime': now
+    })
+
+def adgroup_bulk_update_schedule(request):
+    if not request.user.is_authenticated:
+        return redirect('ui_login')
+
+    if request.method == 'POST':
+        selected_adgroups = request.POST.getlist('adgroup_ids')
+        new_end = request.POST.get('schedule_end')
+
+        # Validate input
+        if not new_end:
+            page_number = request.GET.get('page', 1)
+            adgroups = fetch_adgroups(page=page_number, page_size=100)
+            paginator = Paginator(adgroups, 100)
+            page_obj = paginator.get_page(page_number)
+            return render(request, 'adgroup_bulk_update_schedule.html', {
+                'page_obj': page_obj,
+                'no_adgroups': len(adgroups) == 0,
+                'error': "Please provide an end time."
+            })
+
+        # Validate and parse end date (must be in the future)
+        now = datetime.now()
+        try:
+            end_dt = datetime.strptime(new_end, '%Y-%m-%dT%H:%M')
+            if end_dt <= now:
+                raise ValueError("End time must be in the future.")
+        except ValueError as e:
+            page_number = request.GET.get('page', 1)
+            adgroups = fetch_adgroups(page=page_number, page_size=100)
+            paginator = Paginator(adgroups, 100)
+            page_obj = paginator.get_page(page_number)
+            return render(request, 'adgroup_bulk_update_schedule.html', {
+                'page_obj': page_obj,
+                'no_adgroups': len(adgroups) == 0,
+                'error': str(e)
+            })
+
+        api_end = end_dt.strftime('%Y-%m-%d %H:%M:00')
+
+        # Process updates
+        update_errors = []
+        for adgroup_id in selected_adgroups:
+            adgroup = fetch_adgroup_details(adgroup_id)
+            if not adgroup:
+                update_errors.append(f"{adgroup_id} (Not found)")
+                continue
+
+            # Ensure end time is after start time if start exists
+            existing_start = adgroup.get('schedule_start_time', 'N/A')
+            if existing_start != 'N/A':
+                try:
+                    start_dt = datetime.strptime(existing_start, '%Y-%m-%d %H:%M:%S')
+                    if end_dt <= start_dt:
+                        update_errors.append(f"{adgroup_id} (End time must be after start time: {existing_start})")
+                        continue
+                except ValueError:
+                    pass
+
+            payload = {
+                "advertiser_id": TIKTOK_ADVERTISER_ID,
+                "adgroup_id": adgroup_id,
+                "schedule_type": "SCHEDULE_START_END",
+                "schedule_end_time": api_end,
+            }
+            try:
+                response = requests.post(f"{BASE_URL}/adgroup/update/", json=payload, headers=HEADERS)
+                if response.status_code not in [200, 204] or (response.status_code == 200 and response.json().get("code") != 0):
+                    error_detail = response.json().get('message', response.text)
+                    update_errors.append(f"{adgroup_id} ({error_detail})")
+            except requests.exceptions.RequestException as e:
+                update_errors.append(f"{adgroup_id} (Request failed: {str(e)})")
+
+        # Handle results
+        if not update_errors:
+            return redirect('dashboard')
+        page_number = request.GET.get('page', 1)
+        adgroups = fetch_adgroups(page=page_number, page_size=100)
+        paginator = Paginator(adgroups, 100)
+        page_obj = paginator.get_page(page_number)
+        return render(request, 'adgroup_bulk_update_schedule.html', {
+            'page_obj': page_obj,
+            'no_adgroups': len(adgroups) == 0,
+            'error': f"Failed to update ad groups: {', '.join(update_errors)}"
+        })
+
+    # On GET, render the bulk update page
+    page_number = request.GET.get('page', 1)
+    adgroups = fetch_adgroups(page=page_number, page_size=100)
+    paginator = Paginator(adgroups, 100)
+    page_obj = paginator.get_page(page_number)
+    return render(request, 'adgroup_bulk_update_schedule.html', {
         'page_obj': page_obj,
         'no_adgroups': len(adgroups) == 0
     })
