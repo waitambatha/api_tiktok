@@ -159,9 +159,6 @@ def ui_logout(request):
     return redirect('ui_login')
 
 def dashboard(request):
-    """
-    Displays the user dashboard with a paginated table of ad groups (100 per page).
-    """
     if not request.user.is_authenticated:
         return redirect('ui_login')
 
@@ -171,7 +168,7 @@ def dashboard(request):
     page_obj = paginator.get_page(page_number)
 
     no_adgroups = (len(adgroups) == 0)
-    message = request.GET.get('message', None)
+    message = request.GET.get('message', None)  # Already present
     error = request.GET.get('error', None)
 
     return render(request, 'dashboard.html', {
@@ -339,9 +336,6 @@ def adgroup_listing(request):
     })
 
 def adgroup_bulk_update(request):
-    """
-    Handles bulk updates of ad group budgets.
-    """
     if not request.user.is_authenticated:
         return redirect('ui_login')
 
@@ -376,6 +370,7 @@ def adgroup_bulk_update(request):
             })
 
         update_errors = []
+        updated_adgroups = []
         for adgroup_id in selected_adgroups:
             url = f"{BASE_URL}/adgroup/update/"
             payload = {
@@ -385,22 +380,26 @@ def adgroup_bulk_update(request):
             }
             try:
                 response = requests.post(url, json=payload, headers=HEADERS)
-                if response.status_code not in [200, 204]:
+                if response.status_code in [200, 204]:
+                    updated_adgroups.append(adgroup_id)
+                else:
                     update_errors.append(adgroup_id)
             except requests.exceptions.RequestException as e:
                 update_errors.append(f"{adgroup_id} (Request failed: {str(e)})")
 
-        if not update_errors:
-            return redirect('dashboard')
-        page_number = request.GET.get('page', 1)
-        adgroups = fetch_adgroups(page=page_number, page_size=100)
-        paginator = Paginator(adgroups, 100)
-        page_obj = paginator.get_page(page_number)
-        return render(request, 'adgroup_bulk_update.html', {
-            'page_obj': page_obj,
-            'no_adgroups': len(adgroups) == 0,
-            'error': f"Failed to update ad groups: {', '.join(update_errors)}"
-        })
+        if not update_errors and updated_adgroups:
+            success_message = f"Ad Groups {', '.join(updated_adgroups)} updated with new Budget: ${new_budget:.2f}"
+            return redirect(f"/dashboard/?message={quote(success_message)}")
+        elif update_errors:
+            page_number = request.GET.get('page', 1)
+            adgroups = fetch_adgroups(page=page_number, page_size=100)
+            paginator = Paginator(adgroups, 100)
+            page_obj = paginator.get_page(page_number)
+            return render(request, 'adgroup_bulk_update.html', {
+                'page_obj': page_obj,
+                'no_adgroups': len(adgroups) == 0,
+                'error': f"Failed to update ad groups: {', '.join(update_errors)}"
+            })
 
     # On GET, render the bulk update page with the ad group list
     page_number = request.GET.get('page', 1)
@@ -411,6 +410,8 @@ def adgroup_bulk_update(request):
         'page_obj': page_obj,
         'no_adgroups': len(adgroups) == 0
     })
+
+from urllib.parse import quote  # Ensure this is imported at the top
 
 def adgroup_update(request, adgroup_id):
     if not request.user.is_authenticated:
@@ -464,6 +465,10 @@ def adgroup_update(request, adgroup_id):
 
         api_end = end_dt.strftime('%Y-%m-%d %H:%M:00')
 
+        # Store old values for success message
+        old_budget = adgroup.get('budget', 0)
+        old_end = adgroup.get('schedule_end_time', 'N/A')
+
         # Prepare payload for API (only update budget and end time)
         payload = {
             "advertiser_id": TIKTOK_ADVERTISER_ID,
@@ -476,7 +481,9 @@ def adgroup_update(request, adgroup_id):
         # Normal update
         response = requests.post(f"{BASE_URL}/adgroup/update/", json=payload, headers=HEADERS)
         if response.status_code in [200, 204] or (response.status_code == 200 and response.json().get("code") == 0):
-            return redirect('dashboard')
+            # Construct success message
+            success_message = f"Ad Group ID {adgroup_id} has been updated: Budget from ${old_budget:.2f} to ${budget:.2f}, Schedule End from {old_end} to {api_end}"
+            return redirect(f"/dashboard/?message={quote(success_message)}")
         error_msg = response.json().get('message', response.text)
         return render(request, 'adgroup_update.html', {
             'adgroup': adgroup, 'current_datetime': now,
@@ -530,6 +537,7 @@ def adgroup_bulk_update_schedule(request):
 
         # Process updates
         update_errors = []
+        updated_adgroups = []
         for adgroup_id in selected_adgroups:
             adgroup = fetch_adgroup_details(adgroup_id)
             if not adgroup:
@@ -555,24 +563,28 @@ def adgroup_bulk_update_schedule(request):
             }
             try:
                 response = requests.post(f"{BASE_URL}/adgroup/update/", json=payload, headers=HEADERS)
-                if response.status_code not in [200, 204] or (response.status_code == 200 and response.json().get("code") != 0):
+                if response.status_code in [200, 204] or (response.status_code == 200 and response.json().get("code") == 0):
+                    updated_adgroups.append(adgroup_id)
+                else:
                     error_detail = response.json().get('message', response.text)
                     update_errors.append(f"{adgroup_id} ({error_detail})")
             except requests.exceptions.RequestException as e:
                 update_errors.append(f"{adgroup_id} (Request failed: {str(e)})")
 
         # Handle results
-        if not update_errors:
-            return redirect('dashboard')
-        page_number = request.GET.get('page', 1)
-        adgroups = fetch_adgroups(page=page_number, page_size=100)
-        paginator = Paginator(adgroups, 100)
-        page_obj = paginator.get_page(page_number)
-        return render(request, 'adgroup_bulk_update_schedule.html', {
-            'page_obj': page_obj,
-            'no_adgroups': len(adgroups) == 0,
-            'error': f"Failed to update ad groups: {', '.join(update_errors)}"
-        })
+        if not update_errors and updated_adgroups:
+            success_message = f"Ad Groups {', '.join(updated_adgroups)} updated with new Schedule End: {api_end}"
+            return redirect(f"/dashboard/?message={quote(success_message)}")
+        elif update_errors:
+            page_number = request.GET.get('page', 1)
+            adgroups = fetch_adgroups(page=page_number, page_size=100)
+            paginator = Paginator(adgroups, 100)
+            page_obj = paginator.get_page(page_number)
+            return render(request, 'adgroup_bulk_update_schedule.html', {
+                'page_obj': page_obj,
+                'no_adgroups': len(adgroups) == 0,
+                'error': f"Failed to update ad groups: {', '.join(update_errors)}"
+            })
 
     # On GET, render the bulk update page
     page_number = request.GET.get('page', 1)
